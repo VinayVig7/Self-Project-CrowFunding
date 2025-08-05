@@ -27,14 +27,15 @@ contract CrowFunding {
     ////////////
     // Errors //
     ///////////
-    error CrowFundingIsNotOpen();
-    error LessThanMinimumContribution();
-    error ClaimFundingFailed();
-    error ClaimFundingThroughCallFailed();
-    error NotOwnerOfTheContract();
-    error WithdrawFundFailed();
-    error WithdrawFundingThroughCallFailed();
-    error NothingToWithdraw();
+    error CrowFunding__CrowFundingIsNotOpen();
+    error CrowFunding__LessThanMinimumContribution();
+    error CrowFunding__ClaimFundingFailed();
+    error CrowFunding__ClaimFundingThroughCallFailed();
+    error CrowFunding__NotOwnerOfTheContract();
+    error CrowFunding__WithdrawFundFailed();
+    error CrowFunding__WithdrawFundingThroughCallFailed();
+    error CrowFunding__NothingToWithdraw();
+    error CrowFunding__FallbackFunctionCalled();
 
     //////////
     // Enum //
@@ -48,12 +49,13 @@ contract CrowFunding {
     /////////////////////
     // State Variables //
     ////////////////////
+    uint256 public constant fundingTime = 30 days;
     uint256 public immutable i_deadline;
     uint256 public immutable i_goal;
     uint256 public immutable i_minimumContribution;
     uint256 public immutable i_deployTimeStamp;
     address private immutable i_owner;
-    crowFundingStatus private s_status;
+    crowFundingStatus public s_status;
     mapping(address user => uint256 amount) s_contributors;
 
     ////////////
@@ -66,7 +68,6 @@ contract CrowFunding {
     ///////////////
     // Modifiers //
     //////////////
-
     /**
      * @notice Updates the status of the crowdfunding campaign based on deadline and funds raised
      */
@@ -88,7 +89,7 @@ contract CrowFunding {
      */
     modifier ownerOnly() {
         if (msg.sender != i_owner) {
-            revert NotOwnerOfTheContract();
+            revert CrowFunding__NotOwnerOfTheContract();
         }
         _;
     }
@@ -96,7 +97,6 @@ contract CrowFunding {
     ///////////////
     // Functions //
     //////////////
-
     /**
      * @notice Initializes the crowdfunding contract with goal and minimum contribution
      * @param goal The funding goal in wei
@@ -106,7 +106,7 @@ contract CrowFunding {
         i_goal = goal;
         i_minimumContribution = minimumContribution;
         i_deployTimeStamp = block.timestamp;
-        i_deadline = i_deployTimeStamp + 1 hours;
+        i_deadline = i_deployTimeStamp + fundingTime;
         i_owner = msg.sender;
         s_status = crowFundingStatus.FUNDING;
     }
@@ -117,10 +117,10 @@ contract CrowFunding {
      */
     function contribute() public payable crowFundingStatusCheck {
         if (s_status != crowFundingStatus.FUNDING) {
-            revert CrowFundingIsNotOpen();
+            revert CrowFunding__CrowFundingIsNotOpen();
         }
         if (msg.value < i_minimumContribution) {
-            revert LessThanMinimumContribution();
+            revert CrowFunding__LessThanMinimumContribution();
         }
         s_contributors[msg.sender] += msg.value;
         emit ContributionMade(msg.sender, msg.value);
@@ -132,13 +132,13 @@ contract CrowFunding {
      */
     function claimFunds() public crowFundingStatusCheck ownerOnly {
         if (s_status != crowFundingStatus.SUCCESSFUL) {
-            revert ClaimFundingFailed();
+            revert CrowFunding__ClaimFundingFailed();
         }
         (bool success, ) = payable(i_owner).call{value: address(this).balance}(
             ""
         );
         if (!success) {
-            revert ClaimFundingThroughCallFailed();
+            revert CrowFunding__ClaimFundingThroughCallFailed();
         }
         emit FundsClaimed(i_owner, address(this).balance);
     }
@@ -149,12 +149,12 @@ contract CrowFunding {
      */
     function withdraw() public crowFundingStatusCheck {
         if (s_status == crowFundingStatus.SUCCESSFUL) {
-            revert WithdrawFundFailed();
+            revert CrowFunding__WithdrawFundFailed();
         }
 
         uint256 contributedAmount = s_contributors[msg.sender];
         if (contributedAmount == 0) {
-            revert NothingToWithdraw();
+            revert CrowFunding__NothingToWithdraw();
         }
 
         s_contributors[msg.sender] = 0;
@@ -163,7 +163,7 @@ contract CrowFunding {
             ""
         );
         if (!success) {
-            revert WithdrawFundingThroughCallFailed();
+            revert CrowFunding__WithdrawFundingThroughCallFailed();
         }
 
         emit WithdrawClaimed(msg.sender, contributedAmount);
@@ -172,7 +172,6 @@ contract CrowFunding {
     //////////////////////
     // Getters Function //
     /////////////////////
-
     /**
      * @notice Returns the current ETH balance of the crowdfunding contract
      * @return The contract balance in wei
@@ -196,7 +195,21 @@ contract CrowFunding {
      * @notice Returns the current status of the crowdfunding campaign
      * @return The campaign status as enum value
      */
-    function getStatus() public view returns (crowFundingStatus) {
+    function getStatus() public crowFundingStatusCheck returns (crowFundingStatus) {
         return s_status;
+    }
+
+    /**
+     * @notice Accept ETH sent directly by redirecting to contribute()
+     */
+    receive() external payable {
+        contribute(); // redirect to your main logic
+    }
+
+    /**
+     * @notice Fallback function in case of incorrect call
+     */
+    fallback() external payable {
+        revert CrowFunding__FallbackFunctionCalled();
     }
 }
